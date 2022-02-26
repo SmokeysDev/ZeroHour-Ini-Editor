@@ -1,0 +1,244 @@
+<style>
+	input.dirty {
+		background: #FDC;
+	}
+	#weap-tables {
+		display: flex;
+		flex-direction: row wrap;
+	}
+	#details tbody tr:last-child :is(td,th) {
+		padding-bottom: 10px;
+	}
+	#details tbody + tbody tr:first-child :is(td,th) {
+		border-top: 1px solid #999;
+		padding-top: 10px;
+	}
+</style>
+
+<button id="back">Back</button>
+<h3>Edit</h3>
+
+<div id="details">
+	<table>
+		<tbody id="edit-props">
+		</tbody>
+		<tbody id="edit-loco">
+			<tr> <th>Locomotor</th> <td></td> </tr>
+		</tbody>
+		<tbody id="edit-armour">
+			<tr> <th>Armour</th> <td></td> </tr>
+		</tbody>
+	</table>
+	<h4>Weapons</h4>
+	<div id="weap-tables">
+	</div>
+</div>
+
+<br>
+<button id="save">Save changes</button>
+
+<template id="edit-row-tpl">
+	<tr>
+		<th class="prop-name"></th>
+		<td class="prop-value"><input></td>
+	</tr>
+</template>
+
+<template id="table-tpl">
+	<table>
+		<tbody>
+		</tbody>
+	</table>
+</template>
+
+<textarea id="debug" style="width: 1500px; height: 100px; margin-top: 50px;"></textarea>
+<script src="helpers.js"></script>
+<script src="main.js"></script>
+<script>
+	debugErrors('#debug');
+	/**
+	 * @typedef FileInfo
+	 * @property {string} fullPath
+	 * @property {string} relPath
+	 * @property {boolean} new
+	*/
+	/**
+	 * @typedef PropInfo
+	 * @property {string} value
+	 * @property {string} notes
+	*/
+	/**
+	 * @typedef LocoInfo
+	 * @property {string} name
+	 * @property {Record<string, PropInfo>} properties
+	*/
+	/**
+	 * @typedef Definition
+	 * @property {string} def The original opening string of this definition
+	 * @property {string} type
+	 * @property {string} kind
+	 * @property {string} name
+	 * @property {any} weapons
+	 * @property {LocoInfo} locomotor
+	 * @property {Record<string, PropInfo>} properties
+	*/
+	/**
+	 * @typedef EditModel
+	 * @property {string} side
+	 * @property {FileInfo} file
+	 * @property {Definition} def
+	*/
+
+	/** @type EditModel */
+	let def = null;
+
+	find('#save').addEventListener('click', async ev => {
+		const toSave = new Set();
+		findAll('table input.dirty').forEach(input => {
+			const value = input.value;
+			const prop = input._prop;
+			if (!prop) return;
+			const def = input.closest('tbody')._def;
+			if (!def) return;
+			if (!def.changedProps) def.changedProps = [];
+			prop.newValue = value;
+			def.changedProps.push(prop);
+			toSave.add(def);
+		});
+		if (!toSave.size) find('#debug').value = 'Nothing to save!';
+		else {
+			find('#debug').value = JSON.stringify(toSave, null, 2);
+			try {
+				const success = await updateDefinitions(toSave);
+				if (success) {
+					// window.parent.postMessage({
+					// 	request: 'reload'
+					// });
+					window.parent.postMessage({
+						request: 'update',
+						definitions: Array.from(toSave)
+					});
+				}
+			}
+			catch (err) {
+				find('#debug').value += '\n\n' + err.message + '\n\n' + err.stack;
+			}
+		}
+	});
+
+	window.addEventListener('message', ev => {
+		def = ev.data;
+		const editBody = find('#edit-props');
+		const editRowTpl = find('#edit-row-tpl');
+		const tableTpl = find('#table-tpl');
+		find('h3').textContent = 'Edit ' + def.kind.toLowerCase() + ' - ' + def.name;
+		if (def.file.new) {
+			const p = document.createElement('p');
+			p.textContent = '* Already modified *';
+			find('h3').after(p);
+		}
+		editBody._def = def;
+		// core properties
+		Object.keys(def.properties).forEach(prop => {
+			const propInfo = def.properties[prop];
+			const row = editRowTpl.content.cloneNode(true).children[0];
+			row.querySelector('.prop-name').textContent = prop;
+			const input = row.querySelector('.prop-value input');
+			input.name = prop;
+			input.value = propInfo.value;
+			input.after(propInfo.notes ? ' ' + propInfo.notes : '');
+			input.dataset.current = propInfo.value;
+			input.addEventListener('input', throttle(() => {
+				const newVal = input.value.trim();
+				input.classList.toggle('dirty', newVal !== input.dataset.current);
+			}));
+			input._prop = propInfo;
+			editBody.append(row);
+		});
+		// locomotor
+		if (def.locomotor) {
+			const locoBody = find('#edit-loco');
+			locoBody._def = def.locomotor;
+			locoBody.querySelector('td').textContent = def.locomotor.name;
+			Object.keys(def.locomotor.properties).forEach(prop => {
+				const propInfo = def.locomotor.properties[prop];
+				const row = editRowTpl.content.cloneNode(true).children[0];
+				row.querySelector('.prop-name').textContent = prop;
+				const input = row.querySelector('.prop-value input');
+				input.name = prop;
+				input.value = propInfo.value;
+				input.after(propInfo.notes ? ' ' + propInfo.notes : '');
+				input.addEventListener('input', throttle(() => {
+					const newVal = input.value.trim();
+					input.classList.toggle('dirty', newVal !== propInfo.value);
+				}));
+				input._prop = propInfo;
+				locoBody.append(row);
+			});
+		}
+		else {
+			find('#edit-loco').remove();
+		}
+		// armour
+		if (def.armour) {
+			const locoBody = find('#edit-armour');
+			locoBody._def = def.armour;
+			locoBody.querySelector('td').textContent = def.armour.name;
+			Object.keys(def.armour.properties).forEach(prop => {
+				const propInfo = def.armour.properties[prop];
+				const row = editRowTpl.content.cloneNode(true).children[0];
+				row.querySelector('.prop-name').textContent = prop;
+				const input = row.querySelector('.prop-value input');
+				input.name = prop;
+				input.value = propInfo.value;
+				input.after(propInfo.notes ? ' ' + propInfo.notes : '');
+				input.addEventListener('input', throttle(() => {
+					const newVal = input.value.trim();
+					input.classList.toggle('dirty', newVal !== propInfo.value);
+				}));
+				input._prop = propInfo;
+				locoBody.append(row);
+			});
+		}
+		else {
+			find('#edit-armour').remove();
+		}
+		// weapons
+		const weapTables = find('#weap-tables');
+		if (def.weapons && def.weapons.length > 0) {
+			def.weapons.forEach(weap => {
+				const table = tableTpl.content.cloneNode(true).children[0];
+				const body = table.querySelector('tbody');
+				body._def = weap;
+				body.innerHTML = `
+					<tr> <th>Type</th> <td>${weap.type}</td> </tr>
+					<tr> <th>Name</th> <td>${weap.name}</td> </tr>
+				`;
+				Object.keys(weap.properties).forEach(prop => {
+					const propInfo = weap.properties[prop];
+					const row = editRowTpl.content.cloneNode(true).children[0];
+					row.querySelector('.prop-name').textContent = prop;
+					const input = row.querySelector('.prop-value input');
+					input.name = prop;
+					input.value = propInfo.value;
+					input.after(propInfo.notes ? ' ' + propInfo.notes : '');
+					input.addEventListener('input', throttle(() => {
+						const newVal = input.value.trim();
+						input.classList.toggle('dirty', newVal !== propInfo.value);
+					}));
+					input._prop = propInfo;
+					body.append(row);
+				});
+				weapTables.append(table);
+			});
+		}
+		else {
+			weapTables.append('(none)');
+		}
+		find('textarea').value = 'DATA: ' + JSON.stringify(ev.data, null, 2);
+	});
+
+	find('#back').addEventListener('click', () => loadPage('home'));
+
+	find('textarea').value = 'Definition: ' + window.location.search;
+</script>

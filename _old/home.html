@@ -1,0 +1,150 @@
+<style>
+	#content {
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+	}
+	#filters {
+		display: flex;
+		gap: 20px;
+	}
+	#find-results {
+		flex: 1;
+		overflow-y: auto;
+		margin: 10px 0 0 10px;
+		padding: 0;
+	}
+		#find-results .result {
+			color: blue;
+			cursor: pointer;
+			margin: 3px 0;
+		}
+		#find-results .result.new .name {
+			color: purple;
+		}
+		#find-results .result:hover {
+			text-decoration: underline;
+		}
+			#find-results .result span:not(.name) {
+				opacity: 0.7;
+			}
+	</style>
+<div id="content">
+	<p>
+		<!-- Original files: <input type="file" nwdirectory name="original" value="G:\C&C\Zero Hour - Rise of the Reds - custom\Data\INI\_rotr" /> -->
+		Original files: <input type="text" name="original" value="G:\C&C\Zero Hour - Rise of the Reds - custom\Data\INI\_rotr\" />
+	</p>
+	<p>
+		Target INI folder: <input type="text" name="target" value="G:\C&C\Zero Hour - Rise of the Reds - custom\Data\INI\" />
+	</p>
+	<button>Run</button>
+
+	<br>
+	<textarea id="debug" style="width: 1500px; height: 50px;"></textarea>
+
+	<h2>Find something</h2>
+	<div id="filters">
+		<label>Type: <select name="type"></select></label>
+		<label>Side: <select name="side"></select></label>
+		<label>Kind: <select name="kind"></select></label>
+		<label>Replaced files only: <input type="checkbox" name="new"></input></label>
+		<label>Name filter: <input name="name"></label>
+	</div>
+	<ul id="find-results"></ul>
+</div>
+
+<script src="helpers.js"></script>
+<script src="main.js"></script>
+<script>
+	window.onerror = (ev) => { find('#debug').value = 'ERROR: ' + ev; };
+
+	const typeSelect = find('select[name=type]');
+	const kindSelect = find('select[name=kind]');
+	const sideSelect = find('select[name=side]');
+	const nameInput = find('input[name=name]');
+	const newCheckbox = find('input[name=new]');
+
+	let parsedFiles = [];
+
+	function updateSearchResults() {
+		find('#find-results').innerHTML = '';
+		const str = nameInput.value.trim().toLowerCase();
+		const type = typeSelect.value;
+		const side = sideSelect.value;
+		const kind = kindSelect.value;
+		const newOnly = newCheckbox.checked;
+		const results = [];
+		parsedFiles.forEach(file => {
+			if (side && file.side !== side) return;
+			if (newOnly && !file.new) return;
+			const defs = file.definitions.filter(d => (!type || d.type === type) && (!kind || d.kind === kind) && d.name.toLowerCase().includes(str));
+			if (!defs.length) return;
+			results.push(...defs.map(def => ({
+				side: file.side,
+				file: { new: file.new, fullPath: file.fullPath, relPath: file.relPath },
+				def
+			})));
+		});
+		results.sort((r1, r2) => {
+			return r1.def > r2.def ? 1 : -1;
+		});
+		find('#find-results').append(...results.map(result => {
+			const li = document.createElement('li');
+			li.classList.add('result');
+			if (result.file.new && result.def.type === 'Object') {
+				li.classList.add('new');
+			}
+			li.innerHTML = `
+				<span class="side">${result.side}</span>
+				-
+				<span class="kind">${result.def.kind}</span>
+				-
+				<span class="name">${result.def.name}</span>
+				--->
+				<span class="file-path">${result.file.relPath}</span>
+			`;
+			li.addEventListener('click', () => {
+				loadPage('edit-definition', result);
+			});
+			return li;
+		}).flat());
+	}
+
+	typeSelect.addEventListener('change', updateSearchResults);
+	sideSelect.addEventListener('change', updateSearchResults);
+	kindSelect.addEventListener('change', updateSearchResults);
+	newCheckbox.addEventListener('change', updateSearchResults);
+	nameInput.addEventListener('input', throttle(() => {
+		updateSearchResults();
+	}, 750, { leading: false }));
+
+	function setSelectValues(select, vals) {
+		select.innerHTML = '<option value="">All</option>';
+		vals.forEach(val => {
+			const opt = document.createElement('option');
+			opt.value = val;
+			opt.textContent = val;
+			select.append(opt);
+		});
+	}
+
+	find('button').addEventListener('click', async () => {
+		try {
+			const origPath = find('input[name=original]').value;//.split(';')[0].replace(/[\\\/][^\\\/]+$/, '');
+			const targetPath = find('input[name=target]').value.split(';')[0].replace(/[\\\/][^\\\/]+$/, '');
+			parsedFiles = await processDirs(origPath, targetPath);
+			const types = parsedFiles.flatMap(f => f.definitions.map(def => def.type)).filter((v,i,a) => a.indexOf(v) === i);
+			const sides = parsedFiles.map(f => f.side).filter((v,i,a) => a.indexOf(v) === i);
+			const kinds = parsedFiles.flatMap(f => f.definitions.map(def => def.kind)).filter((v,i,a) => a.indexOf(v) === i);
+			setSelectValues(typeSelect, types.sort());
+			setSelectValues(sideSelect, sides.sort());
+			setSelectValues(kindSelect, kinds.sort());
+			find('textarea').value = 'Parsed ' + parsedFiles.length + ' files';//JSON.stringify(parsedFiles, null, 2);
+			//find('textarea').value += '\n' + JSON.stringify(parsedFiles, null, 2);
+		}
+		catch (err) {
+			find('textarea').value = 'ERROR: ' + err.message + '\n\n' + err.stack;
+		}
+	});
+	find('button').click();
+</script>

@@ -1,0 +1,16 @@
+{
+  "name": "zero-hour-editor",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.html",
+  "scripts": {
+    "start": "C:\\Software\\nwjs-sdk\\nw.exe .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ini": "^2.0.0",
+    "line-reader": "^0.4.0"
+  }
+}
